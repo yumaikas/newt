@@ -1,0 +1,3 @@
+(declare-project 
+      :name "{{ (args :newt/project-name) }}"
+      :description "EDIT ME!")

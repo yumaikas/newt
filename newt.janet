@@ -1,6 +1,9 @@
 (import path)
 (import err)
 (import temple)
+(import spork/argparse :prefix "")
+
+(temple/add-loader)
 
 (defn string/replace-pairs [replacements str] 
   # TODO: Move this into some extended strings library
@@ -52,11 +55,10 @@
       (filter |(not (string/find "-header" $))) 
       (sort)))
   (each lice to-print
-    (print "  " lice)
-    )
-  ) 
+    (print "  " lice))) 
 
-(defn- print-help [] 
+# This will be removed once all of the flags have been translated to argparse form
+(comment print-help [] 
   (print 
     ```
     newt: A Janet Project Scaffolder
@@ -71,61 +73,36 @@
     -R: Don't create a README.md
     -L: Don't create a license
     -T: Don't create a test folder
-    -list-licenses: Lists the liscense templates that are available
+    --list-licenses: Lists the liscense templates that are available
     ```)
   )
 
-(def- args/stop @"") 
-(def- args/continue @"")
-(defn- handle [args opts]
+(def argparse-params 
+  [```
+   newt - A janet project Scaffolder
+   ```
 
-  (defn- add-license-opt [opts license] 
-    (if (license-templates (keyword license)) 
-      (put opts :newt/project-license license)
-      (err/signal :cli-err "Unknown license " license ".")
-      )
-    [2 args/continue]
-    )
+   "name" {:kind :option 
+           :short "n"
+           :help "The name of the project to generate the stub for"}
+   "author" {:kind :option 
+             :short "a"
+             :help "The author of the project (you, or your company)" }
+   "license" {:kind :option 
+             :short "l"
+             :help "The license to be generated in the project" }
+   "list-licenses" {:kind :flag 
+                    :default false 
+                    :help "List the licenses available for use in project templates"}
 
-  (defn on [key &opt state] 
-    (put opts key true)
-    [1 (or state args/continue)]
-    )
-  (defn off [key &opt state]
-    (put opts key false)
-    [1 (or state args/continue)]
-    )
+   ])
 
-  (defn kv [key val &opt state] 
-    (put opts key val)
-    [2 (or state args/continue)]
-    )
+(def fullname-pat 
+  ~{
+    :main (* "Full Name" :s+ (capture (some (if-not "\n" 1))))
+    })
 
-  (match args
-    @["help"]            (on :newt/show-help args/stop)
-    @["-h"]              (on :newt/show-help args/stop)
-    @["-x"]              (on :newt/change-fs args/continue)
-    @["-P"]              (on :newt/suppress-project args/continue)
-    @["-T"]              (on :newt/suppress-test args/continue)
-    @["-R"]              (on :newt/suppress-readme args/continue)
-    @["-L"]              (on :newt/suppress-license args/continue)
-    @["--list-licenses"] (on :newt/list-licenses args/stop)
-
-    @["-a" author]       (kv :newt/project-author author)
-    @["-l" license]      (add-license-opt opts license)
-    @["-n" name]         (kv :newt/project-name name) 
-
-    @["-a"]              (err/signal :newt/cli-err "-a flag requires a value")
-    @["-l"]              (err/signal :newt/cli-err "-l flag requires a value")
-    @["-n"]              (err/signal :newt/cli-err "-n flag requires a value")
-    @[flag]              (err/signal :newt/cli-err "Unknown cli flag: " flag)
-    )
-  )
-
-(def fullname-pat ~{
-                    :main (* "Full Name" :s+ (capture (some (if-not "\n" 1))))
-                    })
-
+# @task[Replace this with a version that pulls from git meat info
 (defn get-user-full-name-windows [] 
   (def cmd (string "net user " (os/getenv "USERNAME")))
   (var retval nil)
@@ -133,12 +110,8 @@
     (while (def l (:read f :line))
       (when (def m (peg/match fullname-pat l))
         (set retval (m 0))
-        (break)
-        )
-      )
-    )
-  retval
-  )
+        (break))))
+  retval)
 
 (defn get-author-from-computer [] 
   (match (os/which)
@@ -147,10 +120,9 @@
     _ nil))
 
 (defn- ensure-project-author [opts] 
-  (if-let [
-           author (or (opts :newt/project-author)
-                      (os/getenv "AUTHOR")
-                      (get-author-from-computer))]
+  (if-let [author (or (opts :newt/project-author)
+                       (os/getenv "AUTHOR")
+                       (get-author-from-computer))]
     (put opts :newt/project-author author)
     (err/signal 
       :newt/missing-project-info 
@@ -160,88 +132,36 @@
   )
 
 (defn- ensure-project-name [opts] 
-  (if-let [ 
-           project-name (or 
+  (if-let [project-name (or 
                           (opts :newt/project-name)
-                          (os/getenv "PROJECT_NAME"))
-           ]
+                          (os/getenv "PROJECT_NAME"))]
     (put opts :newt/project-name project-name)
     (err/signal 
       :newt/missing-project-info 
       "Project name isn't set. It can be set using the "
       "-n flag, or the PROJECT_NAME environment variable.")
 
-    )
-  )
+    ))
 
 (defn- ensure-project-license [opts] 
   (when (opts :newt/suppress-license) (break))
   (if-let [project-license 
-           (or 
-             (license-templates (keyword (opts :newt/project-license)))
-             (os/getenv "PROJECT_LICENSE"))]
+             (license-templates 
+               (or 
+                 (keyword (opts :newt/project-license))
+                 (keyword (os/getenv "PROJECT_LICENSE"))))]
     (put opts :newt/project-license-text project-license)
     (err/signal 
       :newt/missing-project-info 
       "Project license isn't set. It can be set using the "
-      "-l flag, or the PROJECT_LICENSE environment variable.")
-    )
-  )
+      "-l flag, or the PROJECT_LICENSE environment variable.")))
 
-(defn- template/test.janet [opts]
-  (comptime
-    (def tmpl 
-      (temple/create
-        ```
-        # Tests for {{ (args :newt/project-name) }}
-        (assert false "Add some tests here, maybe import testament?")
-        ```
-        "newt.janet")))
-  (def outbuf @"")
-  (with-dyns [:out outbuf] (tmpl opts))
-  outbuf)
-
-(defn- template/project.janet [opts]
-  (comptime
-    (def tmpl 
-      (temple/create 
-        ```(declare-project 
-              :name "{{ (args :newt/project-name) }}"
-              :description "EDIT ME!")
-        ```
-        "newt.janet")))
-  (def outbuf @"")
-  (with-dyns [:out outbuf] (tmpl opts))
-  outbuf)
-
-(defn- template/main-file [opts]
-  (comptime
-    (def tmpl 
-      (temple/create 
-        ```
-        (defn main [& args] 
-          (pp args))
-        ```
-        "newt.janet")))
-  (def outbuf @"")
-  (with-dyns [:out outbuf] (tmpl opts))
-  outbuf)
-
-(defn- template/readme [opts]
-  (comptime (def tmpl (temple/create
-    ```
-    # {{ (args :newt/project-name) }}
-
-    ## Status
-    Just started! Edit me!!!
-    ```
-    "newt.janet")))
-  (def outbuf @"")
-  (with-dyns [:out outbuf] (tmpl opts))
-  outbuf)
+(import ./templates/test.janet :as "test.janet")
+(import ./templates/project.janet :as "project.janet")
+(import ./templates/main.janet :as "main.janet")
+(import ./templates/README.md :as "README.md")
 
 (defn- not-path-exist [p] (= (os/stat p) nil))
-
 
 (defn- subst-license [opts] 
   (def license (opts :newt/project-license-text))
@@ -251,55 +171,49 @@
      "{{ year }}" (string ((os/date (os/time) :local) :year))]
     license))
 
+(defmacro render-spit-safe [tmpl args path] 
+  ~(when (,not-path-exist ,path)
+     (with [f (file/open ,path :w)]
+       (with-dyns [:out f]
+         (,(symbol tmpl "/render-dict") ,args)))))
+
+(defn spit-safe [path str] 
+  (when (not-path-exist path)
+     (spit path str)))
+
 (defn create-project [opts] 
-  (def main-file (template/main-file opts))
-  (def main-file-path 
+  (def main-path 
     (-> 
       (string (opts :newt/project-name) ".janet") 
       (clean-path-string)))
 
-  # TODO: Read off the opts
+  (render-spit-safe main.janet opts main-path)
 
-  # Spit README
-  (when (not-path-exist "README.md") 
-    (spit "README.md" (template/readme opts)))
-  # Spit LICENSE
-  (when (not-path-exist "LICENSE.md")
-    (spit "LICENSE.md" (subst-license opts)))
-  # Spit out project.janet
-  (when (not-path-exist "project.janet")
-    (spit "project.janet" (template/project.janet opts)))
+  (spit-safe "LICENSE.md" (subst-license opts))
+  (render-spit-safe README.md opts "README.md")
+  (render-spit-safe project.janet opts "project.janet")
 
-  (when (not-path-exist main-file-path)
-    (spit main-file-path main-file))
   (when (not-path-exist "test")
     (os/mkdir "test"))
+
   (def test-path (path/join "test" "test.janet"))
-  (when (not-path-exist test-path)
-    (spit test-path (template/test.janet opts)))
+  (render-spit-safe test.janet opts test-path)
 
   (when (opts :newt/should-git-init)
     (os/shell "git init")))
 
 (defn main [exename & args] 
-  (def margs (array/slice args))
+  # dargs = Dict Args
+  (def dargs (argparse ;argparse-params))
+  (unless dargs (os/exit))
 
-  (def opts @{})
-  (while (> (length margs) 0)
-    (err/try* 
-      (do
-        (def [remove-count arg-state] (handle margs opts))
-        (array/remove margs 0 remove-count)
-        (when (= arg-state args/stop) (break)))
-
-      ([:newt/cli-err msg] 
-        (do 
-          (eprint msg)
-          (os/exit 1)))))
-
-  (when (opts :newt/show-help) 
-    (print-help)
-    (break))
+  (def opts 
+    @{
+      :newt/project-author (dargs "author")
+      :newt/project-name (dargs "name")
+      :newt/project-license (dargs "license")
+      :newt/list-licenses (dargs "list-licenses")
+      })
 
   (when (opts :newt/list-licenses) 
     (print-licenses)
