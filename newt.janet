@@ -1,23 +1,13 @@
 (import path)
 (import err)
 (import temple)
+(import stringx :as "str")
 (import spork/argparse :prefix "")
 
 (temple/add-loader)
 
-(defn string/replace-pairs [replacements str] 
-  # TODO: Move this into some extended strings library
-  (assert 
-    (indexed? replacements) 
-    (string "expected replace to be array|tuple, got " (type replacements)))
-  (assert (even? (length replacements)) "Expected an even number of replacements, got an odd one")
-  (var retval str)
-  (each (patt subst) (partition 2 replacements)
-    (set retval (string/replace-all patt subst retval)))
-  retval)
-
 (defn clean-path-string [mypath] 
-  (string/replace-pairs 
+  (str/replace-pairs 
     [
      # Based on https://docs.microsoft.com/en-us/windows/win32/fileio/naming-a-file
      # Either remove, or change unsafe chars
@@ -39,8 +29,11 @@
       (os/dir l-path) it
       (map |[
              (keyword 
-               (string/replace-pairs [".txt" "" "_" "-"]
-                                     $))
+               (str/replace-pairs 
+                 [
+                  ".txt" ""
+                  "_" "-"]
+                 $))
              (slurp (path/join l-path $))
              ] it) 
       (table (splice (flatten it))))))
@@ -165,7 +158,7 @@
 
 (defn- subst-license [opts] 
   (def license (opts :newt/project-license-text))
-  (string/replace-pairs 
+  (str/replace-pairs 
     ["{{ organization }}" (opts :newt/project-author)
      "{{ project }}" (opts :newt/project-name)
      "{{ year }}" (string ((os/date (os/time) :local) :year))]

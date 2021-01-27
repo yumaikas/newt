@@ -4,6 +4,8 @@
     :dependencies  [
         "path"
         "https://github.com/yumaikas/janet-errs" # Installs as err
+        "https://github.com/yumaikas/janet-stringx" # Installs as stringx
+
         "temple"
     ]
 )

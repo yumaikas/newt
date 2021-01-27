@@ -1,10 +1,6 @@
- (use testament)
- (use ../newt)
+(use testament)
+(use ../newt)
  
- (deftest string/replace-pairs-works
-    (assert-equal 
-        (string/replace-pairs ["&" "-" "|" "-"] "a&b|c")
-        "a-b-c")
- )
+# TODO Add meaningful tests for newt
  
- (run-tests!)
+(run-tests!)
